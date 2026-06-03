@@ -1,14 +1,14 @@
 services:
 
-  sandbox-kotlin23:
+  sandbox-kotlin2.3:
     build:
       context: ..
       args:
         - SANDBOX_USER_UID=999
         - SANDBOX_DIR=/sandbox
       dockerfile: ./docker/Dockerfile
-    container_name: sandbox-kotlin23
-    image: sandbox-kotlin23
+    container_name: sandbox-kotlin2.3
+    image: sandbox-kotlin2.3
     volumes:
       - ../src:/app/src
       - import:/sandbox/import:ro
