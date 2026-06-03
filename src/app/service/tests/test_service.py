@@ -64,6 +64,31 @@ def test_execute__data_in_is_integer__ok():
     file.remove()
 
 
+def test_execute__readln_three_integers__ok():
+
+    data_in = (
+        '1\n'
+        '2\n'
+        '3'
+    )
+    code = (
+        'fun main() {\n'
+        '    val a = readln().toInt()\n'
+        '    val b = readln().toInt()\n'
+        '    val c = readln().toInt()\n'
+        '    println(a + b + c)\n'
+        '}\n'
+    )
+    file = KotlinFile(code)
+    KotlinService._compile(file)
+
+    exec_result = KotlinService._execute(file=file, data_in=data_in)
+
+    assert exec_result.result == '6'
+    assert exec_result.error is None
+    file.remove()
+
+
 def test_execute__empty_result__return_none():
 
     code = 'fun main() {\n}\n'

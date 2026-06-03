@@ -62,7 +62,7 @@ class KotlinService:
         proc = subprocess.Popen(
             args=[
                 'java',
-                '-cp', file.work_dir,
+                '-cp', f'{file.work_dir}:{config.KOTLIN_CLASSPATH}',
                 KotlinFile.ENTRY_CLASS,
             ],
             cwd=file.work_dir,
