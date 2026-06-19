@@ -1,63 +1,91 @@
-from flask import (
-    Flask,
-    request,
-    render_template,
-    abort
-)
-from marshmallow import ValidationError
-from app.service.main import KotlinService
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
 from app.schema import (
-    DebugSchema,
-    TestsSchema,
-    BadRequestSchema,
-    ServiceExceptionSchema,
+    BadRequestResponse,
+    DebugRequest,
+    DebugResponse,
+    ServiceExceptionResponse,
+    TestsRequest,
+    TestsResponse,
+    format_validation_errors,
 )
 from app.service.exceptions import ServiceException
+from app.service.main import KotlinService
+
+APP_DIR = Path(__file__).parent
+TEMPLATES_DIR = APP_DIR / 'templates'
+STATIC_DIR = APP_DIR / 'static'
 
 
-def create_app():
+def create_app() -> FastAPI:
+    app = FastAPI()
+    templates = Jinja2Templates(directory=TEMPLATES_DIR)
+    if STATIC_DIR.is_dir():
+        app.mount('/static', StaticFiles(directory=STATIC_DIR), name='static')
 
-    app = Flask(__name__)
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Request,
+        exc: RequestValidationError,
+    ):
+        return JSONResponse(
+            status_code=400,
+            content=BadRequestResponse(
+                details=format_validation_errors(exc.errors()),
+            ).model_dump(),
+        )
 
-    @app.errorhandler(400)
-    def bad_request_handler(ex: ValidationError):
-        return BadRequestSchema().dump(ex), 400
+    @app.exception_handler(ServiceException)
+    async def service_exception_handler(
+        request: Request,
+        exc: ServiceException,
+    ):
+        return JSONResponse(
+            status_code=500,
+            content=ServiceExceptionResponse(
+                error=exc.message,
+                details=exc.details,
+            ).model_dump(),
+        )
 
-    @app.errorhandler(500)
-    def service_exception_handler(ex: ServiceException):
-        return ServiceExceptionSchema().dump(ex), 500
-
-    @app.route('/', methods=['get'])
-    def index():
-        return render_template("index.html")
-
-    @app.route('/debug/', methods=['post'])
-    def debug():
-        schema = DebugSchema()
-        try:
-            data = KotlinService.debug(
-                schema.load(request.get_json())
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(
+        request: Request,
+        exc: StarletteHTTPException,
+    ):
+        if exc.status_code == 400 and isinstance(exc.detail, list):
+            return JSONResponse(
+                status_code=400,
+                content=BadRequestResponse(
+                    details=format_validation_errors(exc.detail),
+                ).model_dump(),
             )
-        except ValidationError as ex:
-            abort(400, ex)
-        except ServiceException as ex:
-            abort(500, ex)
-        else:
-            return schema.dump(data)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={'error': str(exc.detail)},
+        )
 
-    @app.route('/testing/', methods=['post'])
-    def testing():
-        schema = TestsSchema()
-        try:
-            data = KotlinService.testing(
-                schema.load(request.get_json())
-            )
-        except ValidationError as ex:
-            abort(400, ex)
-        except ServiceException as ex:
-            abort(500, ex)
-        else:
-            return schema.dump(data)
+    @app.get('/', response_class=HTMLResponse)
+    async def index(request: Request):
+        return templates.TemplateResponse(request, 'index.html')
+
+    @app.post('/debug/', response_model=DebugResponse)
+    async def debug(data: DebugRequest):
+        result = KotlinService.debug(data.to_entity())
+        return DebugResponse.from_entity(result)
+
+    @app.post('/testing/', response_model=TestsResponse)
+    async def testing(data: TestsRequest):
+        result = KotlinService.testing(data.to_entity())
+        return TestsResponse.from_entity(result)
+
     return app
 
 

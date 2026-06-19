@@ -20,8 +20,9 @@ services:
       - SANDBOX_USER_UID=999
       - SANDBOX_DIR=/sandbox
     restart: on-failure
-    command: gunicorn --pythonpath '/app/src' --bind 0:9013 app.main:app --reload -w 1
-
+    command: >
+      sh -c "cd /app/src && uvicorn app.main:app
+      --host 0.0.0.0 --port 9013 --reload --log-level debug"
 networks:
   localhost:
     external: true

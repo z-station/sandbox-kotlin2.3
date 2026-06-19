@@ -1,105 +1,145 @@
-from typing import Optional
-from marshmallow import Schema, ValidationError
-from marshmallow.fields import (
-    Nested,
-    Field,
-    Boolean,
-    Integer,
-    Method
-)
-from marshmallow.decorators import (
-    post_load,
-    pre_dump
-)
-from app.entities import (
-    DebugData,
-    TestData,
-    TestsData
-)
+from typing import Any, Optional
+
+from pydantic import BaseModel, field_validator
+
+from app.entities import DebugData, TestData, TestsData
 from app.utils import clean_str
-from app.service.exceptions import ServiceException
 
 
-class StrField(Field):
+class DebugRequest(BaseModel):
+    data_in: Optional[str] = None
+    code: str
 
-    def _deserialize(self, value: Optional[str], *args, **kwargs):
+    @field_validator('data_in', 'code', mode='before')
+    @classmethod
+    def clean_input(cls, value: Any) -> Any:
         return clean_str(value)
 
-    def _serialize(self, value: Optional[str], *args, **kwargs):
+    def to_entity(self) -> DebugData:
+        return DebugData(code=self.code, data_in=self.data_in)
+
+
+class DebugResponse(BaseModel):
+    result: Optional[str] = None
+    error: Optional[str] = None
+
+    @classmethod
+    def from_entity(cls, data: DebugData) -> 'DebugResponse':
+        return cls(result=data.result, error=data.error)
+
+
+class TestRequest(BaseModel):
+    data_in: Optional[str] = None
+    data_out: str
+
+    @field_validator('data_in', 'data_out', mode='before')
+    @classmethod
+    def clean_input(cls, value: Any) -> Any:
         return clean_str(value)
 
-
-class DebugSchema(Schema):
-
-    data_in = StrField(
-        required=False,
-        allow_none=True,
-        load_only=True
-    )
-    code = StrField(required=True, load_only=True)
-    result = StrField(dump_only=True)
-    error = StrField(dump_only=True)
-
-    @post_load
-    def make_debug_data(self, data, **kwargs) -> DebugData:
-        return DebugData(**data)
+    def to_entity(self) -> TestData:
+        return TestData(data_in=self.data_in, data_out=self.data_out)
 
 
-class TestSchema(Schema):
+class TestResponse(BaseModel):
+    result: Optional[str] = None
+    error: Optional[str] = None
+    ok: Optional[bool] = None
 
-    data_in = StrField(load_only=True)
-    data_out = StrField(required=True, load_only=True)
-    result = StrField(dump_only=True)
-    error = StrField(dump_only=True)
-    ok = Boolean(dump_only=True)
-
-    @post_load
-    def make_test_data(self, data, **kwargs) -> TestData:
-        return TestData(**data)
+    @classmethod
+    def from_entity(cls, data: TestData) -> 'TestResponse':
+        return cls(result=data.result, error=data.error, ok=data.ok)
 
 
-class TestsSchema(Schema):
+class TestsRequest(BaseModel):
+    tests: list[TestRequest]
+    checker: str
+    code: str
 
-    tests = Nested(TestSchema, many=True, required=True)
-    checker = StrField(load_only=True, required=True)
-    code = StrField(load_only=True, required=True)
-    num = Integer(dump_only=True)
-    num_ok = Integer(dump_only=True)
-    ok = Boolean(dump_only=True)
+    @field_validator('checker', 'code', mode='before')
+    @classmethod
+    def clean_input(cls, value: Any) -> Any:
+        return clean_str(value)
 
-    @post_load
-    def make_tests_data(self, data, **kwargs) -> TestsData:
-        return TestsData(**data)
+    def to_entity(self) -> TestsData:
+        return TestsData(
+            code=self.code,
+            checker=self.checker,
+            tests=[test.to_entity() for test in self.tests],
+        )
 
-    @pre_dump
-    def calculate_properties(self, data: TestsData, **kwargs):
-        data.num = len(data.tests)
+
+class TestsResponse(BaseModel):
+    num: int
+    num_ok: int
+    ok: bool
+    tests: list[TestResponse]
+
+    @classmethod
+    def from_entity(cls, data: TestsData) -> 'TestsResponse':
+        num_ok = 0
+        num = len(data.tests)
         for test in data.tests:
             if test.ok:
-                data.num_ok += 1
-        data.ok = data.num == data.num_ok
-        return data
+                num_ok += 1
+        return cls(
+            num=num,
+            num_ok=num_ok,
+            ok=num == num_ok,
+            tests=[TestResponse.from_entity(test) for test in data.tests],
+        )
 
 
-class BadRequestSchema(Schema):
-
-    error = Method('dump_error')
-    details = Method('dump_details')
-
-    def dump_error(self, obj):
-        return 'Validation error'
-
-    def dump_details(self, obj):
-        return obj.description.messages
+VALIDATION_ERROR = 'Validation error'
 
 
-class ServiceExceptionSchema(Schema):
+class BadRequestResponse(BaseModel):
+    error: str = VALIDATION_ERROR
+    details: dict[str, list[str]]
 
-    error = Method('dump_error')
-    details = Method('dump_details')
 
-    def dump_error(self, obj):
-        return obj.description.message
+class ServiceExceptionResponse(BaseModel):
+    error: Optional[str]
+    details: Any = None
 
-    def dump_details(self, obj):
-        return obj.description.details
+
+PYDANTIC_ERROR_MESSAGES = {
+    'missing': 'Missing data for required field.',
+}
+
+
+def format_validation_errors(errors: list[dict[str, Any]]) -> dict[str, list[str]]:
+
+    """ Преобразует ошибки валидации Pydantic в ожидаемый формат ответа API.
+
+    Формат ошибки велидации FastAPI:
+    {
+      "detail": [
+        {
+          "type": "missing",
+          "loc": ["body", "code"],
+          "msg": "Field required",
+          "input": {
+            "data_in": "some input"
+          }
+        }
+      ]
+    }
+
+     API проекта ожидает другой формат — словарь
+    {
+        "error": str,
+        "details": ?str
+    }
+
+    Args:
+        errors: Список ошибок из ``RequestValidationError.errors()``.
+
+    """
+    details: dict[str, list[str]] = {}
+    for error in errors:
+        loc = [str(part) for part in error['loc'] if part not in ('body', 'query', 'path')]
+        field = loc[-1] if loc else 'body'
+        message = PYDANTIC_ERROR_MESSAGES.get(error['type'], error['msg'])
+        details.setdefault(field, []).append(message)
+    return details

@@ -2,12 +2,13 @@ FROM python:3.12-slim-bookworm
 
 ARG SANDBOX_USER_UID
 ARG SANDBOX_DIR
+ARG POETRY_VERSION=2.1.3
 ARG KOTLIN_VERSION=2.3.20
 
 RUN apt-get update && \
     apt-get -y install nano curl unzip && \
     pip install --upgrade pip && \
-    pip install pipenv
+    pip install --upgrade pip "poetry==${POETRY_VERSION}"
 
 RUN apt-get -y install openjdk-17-jdk-headless
 
@@ -27,7 +28,9 @@ RUN adduser \
     sandbox && \
     chown root:root ${SANDBOX_DIR}
 
-COPY ./src/Pipfile ./src/Pipfile.lock /tmp/
-RUN cd /tmp && pipenv install --deploy --dev --system
+COPY ./src/pyproject.toml ./src/poetry.lock /tmp/
+RUN cd /tmp && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-root --no-ansi
 
 WORKDIR ${SANDBOX_DIR}

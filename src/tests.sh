@@ -1,2 +1,2 @@
 #!/bin/bash
-PYTHONPATH=. pytest -vv -p no:cacheprovider
+PYTHONPATH=. poetry run pytest -vv -p no:cacheprovider
