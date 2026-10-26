@@ -21,8 +21,14 @@ services:
       - SANDBOX_DIR=/sandbox
     restart: on-failure
     command: >
-      sh -c "cd /app/src && uvicorn app.main:app
-      --host 0.0.0.0 --port 9013 --reload --log-level debug"
+      gunicorn app.main:app
+      --chdir /app/src
+      --bind 0.0.0.0:9013
+      --workers 1
+      --worker-class uvicorn.workers.UvicornWorker
+      --log-level debug
+      --timeout 60
+      --reload
 networks:
   localhost:
     external: true
