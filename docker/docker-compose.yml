@@ -22,7 +22,7 @@ services:
     restart: on-failure
     command: >
       gunicorn app.main:app
-      --chdir /app/src
+      --pythonpath /app/src
       --bind 0.0.0.0:9013
       --workers 1
       --worker-class uvicorn.workers.UvicornWorker
